@@ -180,3 +180,7 @@ pi --ssh lab:/srv/project
 启动 Pi 时，在旧版 `--ssh` 和自动化参数之间选择一种配置方式。旧版 SSH 在 POSIX 目标上默认使用 tmux 作业，这类作业需要 tmux。托管作业还需要 Node.js 22 或更高版本，并需在 Pi 中显式运行 `/remote deploy-runner`。
 
 </details>
+
+## 许可证
+
+[MIT](LICENSE)

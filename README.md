@@ -180,3 +180,7 @@ pi --ssh lab:/srv/project
 Choose either legacy `--ssh` or the automation flags when starting Pi. Legacy SSH defaults to tmux jobs on POSIX targets and requires tmux for those jobs. Managed jobs also require Node.js 22 or later and an explicit `/remote deploy-runner` in Pi.
 
 </details>
+
+## License
+
+[MIT](LICENSE)
