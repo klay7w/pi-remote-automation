@@ -14,25 +14,20 @@ A 10-second reminder with Monitor processing markers and the Activity widget:
 
 ## Quickstart
 
-Install Node.js 22 or later and Pi with package support on Windows, Linux or macOS. Clone the repository in a terminal:
+Install Node.js 22 or later, Pi with package support, and Git on Windows, Linux or macOS. In a terminal, run:
 
 ```bash
-git clone https://github.com/klay7w/pi-remote-automation.git
+pi install git:github.com/klay7w/pi-remote-automation
 ```
 
-Install from the checkout using its absolute path:
+Restart Pi or run `/reload` in an existing session. Installation uses personal settings by default. Add `-l` to install in project settings; Pi loads project packages only after project trust is granted. Use `pi list` to list packages and `pi remove <source>` to remove one.
 
-```bash
-# POSIX
-pi install "/absolute/path/to/pi-remote-automation"
-```
+<details>
+<summary>Install a local checkout for source development</summary>
 
-```powershell
-# Windows PowerShell
-pi install "C:/absolute/path/to/pi-remote-automation"
-```
+Clone the repository, then run `pi install "/absolute/path/to/pi-remote-automation"` using the checkout's absolute path. Pi loads the package directly from that directory.
 
-Pi loads the package directly from the checkout. Restart Pi or run `/reload` in an existing session. Installation uses personal settings by default. Add `-l` for project settings. Use `pi list` to list packages and `pi remove <source>` to remove one.
+</details>
 
 Start Pi in your project directory in a terminal:
 

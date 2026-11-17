@@ -14,25 +14,20 @@
 
 ## 快速开始
 
-在 Windows、Linux 或 macOS 上安装 Node.js 22 或更高版本，以及支持包管理的 Pi。在终端中克隆仓库：
+在 Windows、Linux 或 macOS 上安装 Node.js 22 或更高版本、支持包管理的 Pi 和 Git。在终端中运行：
 
 ```bash
-git clone https://github.com/klay7w/pi-remote-automation.git
+pi install git:github.com/klay7w/pi-remote-automation
 ```
 
-使用检出目录的绝对路径安装：
+重启 Pi，或在已有会话中运行 `/reload`。安装默认使用个人设置，添加 `-l` 可使用项目设置。Pi 仅在项目获得信任后加载项目包。运行 `pi list` 查看包，运行 `pi remove <source>` 移除包。
 
-```bash
-# POSIX
-pi install "/absolute/path/to/pi-remote-automation"
-```
+<details>
+<summary>从本地检出目录安装，用于源码开发</summary>
 
-```powershell
-# Windows PowerShell
-pi install "C:/absolute/path/to/pi-remote-automation"
-```
+克隆仓库后，使用检出目录的绝对路径运行 `pi install "/absolute/path/to/pi-remote-automation"`。Pi 直接从该目录加载包。
 
-Pi 直接从检出目录加载包。重启 Pi，或在已有会话中运行 `/reload`。安装默认使用个人设置，添加 `-l` 可使用项目设置。运行 `pi list` 查看包，运行 `pi remove <source>` 移除包。
+</details>
 
 在终端中进入项目目录并启动 Pi：
 
