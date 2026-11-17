@@ -1,0 +1,13 @@
+{
+  "name": "pi-remote-automation",
+  "version": "0.1.0",
+  "private": true,
+  "license": "UNLICENSED",
+  "description": "Session-owned local/SSH probes, schedules and managed background jobs for Pi",
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "keywords": ["pi-package"],
+  "files": ["src/index.ts", "src/runtime.ts", "src/ssh.ts", "src/activity.ts", "src/target.ts", "src/runner.mjs"],
+  "pi": { "extensions": ["./src/index.ts"] },
+  "peerDependencies": { "@earendil-works/pi-coding-agent": "*", "typebox": "*", "@earendil-works/pi-tui": "*" }
+}
