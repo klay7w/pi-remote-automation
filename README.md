@@ -1,23 +1,23 @@
 # pi-remote-automation
 
-Monitor local or SSH tasks from Pi and receive updates when a condition matches. You can set reminders, watch for a result, or check a background job without leaving the session.
+Monitor local or SSH tasks from Pi and receive updates when a condition matches. Set reminders, watch for results, and check background jobs in the same session.
 
 Watches and schedules need a running Pi session. New and restored sessions start with monitoring paused.
 
 English | [简体中文](README.zh-CN.md)
 
-[Quickstart](#quickstart) · [Examples](#examples) · [SSH setup](#ssh-setup) · [Monitoring](#monitoring) · [Tools](#tools) · [Limits](#lifecycle-and-notification-limits)
+[Quickstart](#quickstart) · [Examples](#examples) · [SSH setup](#ssh-setup) · [Monitoring](#monitoring) · [Tools](#tools) · [Session and notifications](#session-and-notifications)
 
-A local reminder in Pi:
+A 10-second reminder with Monitor processing markers and the Activity widget:
 
 ![A local Pi session with a 10-second reminder](docs/assets/remote-automation-local.png)
 
 ## Quickstart
 
-Install Node.js 22 or later and Pi with package support on Windows, Linux or macOS. In a terminal, replace `OWNER/REPO` with the repository address:
+Install Node.js 22 or later and Pi with package support on Windows, Linux or macOS. Clone the repository in a terminal:
 
 ```bash
-git clone https://github.com/OWNER/REPO.git
+git clone https://github.com/klay7w/pi-remote-automation.git
 ```
 
 Install from the checkout using its absolute path:
@@ -32,7 +32,7 @@ pi install "/absolute/path/to/pi-remote-automation"
 pi install "C:/absolute/path/to/pi-remote-automation"
 ```
 
-Pi loads the package from the checkout without copying it. Restart Pi or run `/reload` in an existing session. Installation uses personal settings by default. Add `-l` for project settings. Use `pi list` to list packages and `pi remove <source>` to remove one.
+Pi loads the package directly from the checkout. Restart Pi or run `/reload` in an existing session. Installation uses personal settings by default. Add `-l` for project settings. Use `pi list` to list packages and `pi remove <source>` to remove one.
 
 Start Pi in your project directory in a terminal:
 
@@ -48,7 +48,7 @@ cd C:/work/project
 pi
 ```
 
-Automation defaults to the local machine and Pi's current directory. Local use needs no SSH setup or runner deployment. To use another local directory, start Pi with `pi --automation-target local --automation-cwd <absolute-project-path>`.
+Automation defaults to the local machine and Pi's current directory. To use another local directory, start Pi with `pi --automation-target local --automation-cwd <absolute-project-path>`.
 
 In Pi, run `/remote resume`, then enter this prompt:
 
@@ -58,13 +58,13 @@ After about 10 seconds, Pi should receive a reminder update. Run `/remote activi
 
 ## Examples
 
-Enter these as prompts in Pi. Review commands Pi proposes before allowing them to run.
+Enter these as prompts in Pi:
 
-- Watch for `result.json` to appear every 30 seconds and notify me once. Do not launch or modify any jobs.
+- Check whether `result.json` exists every 30 seconds and notify me once when it appears.
 - Remind me to check this project in 10 seconds.
 - Start the background job I specify, then check its status and output.
 
-File checks use a custom JSON probe on the selected target. There is no built-in file watcher. Probes and job commands can execute arbitrary code, so authorize only commands you intend to run.
+File checks use a custom JSON probe on the selected target. Probes and job commands run with the target user's permissions. Review the commands Pi proposes before execution.
 
 ## SSH setup
 
@@ -80,15 +80,51 @@ pi --automation-target ssh:lab --automation-cwd /srv/project --automation-platfo
 pi --automation-target ssh:lab --automation-cwd C:/work/project --automation-platform win32
 ```
 
-In Pi, run `/remote doctor`, then explicitly run `/remote deploy-runner` and `/remote resume`. Deployment copies the bundled runner to the SSH user's state directory. The flags affect automation tools, not normal Pi tools. Explicit SSH does not fall back to local execution.
+In Pi, run `/remote doctor`, then explicitly run `/remote deploy-runner` and `/remote resume`. Deployment copies the bundled runner to the SSH user's state directory. These flags select the target for automation tools. With `--automation-target ssh:lab`, automation commands execute on `lab`.
 
 ## Monitoring
 
-In Pi, use `/remote activity` to view activity and `/remote doctor` to inspect capabilities. Use `/remote pause` to stop checks and suppress notifications, or `/remote resume` to resume monitoring. Pausing does not stop jobs. Resuming does not re-enable a watch disabled after three probe errors. Recreate it to retry.
+The Activity widget shows up to three active or unread sources. Sources with errors appear first, followed by unread updates. Open `/remote activity` for the full list, check times, observations and notification submission status.
 
-Use `/remote clear` to remove the current session's watches, schedules, job monitoring registrations, unsubmitted events and Activity history. It saves the empty state and leaves monitoring paused. Resuming does not restore cleared registrations. You can also ask Pi to call `remote_control` with `action: "clear"`.
+| Command | Action |
+| --- | --- |
+| `/remote` or `/remote activity` | Open Activity. Press `r` for Monitor response records. |
+| `/remote status` | Open the Activity overview. |
+| `/remote jobs`, `/remote watches`, `/remote schedules` | Show Activity for one source type. |
+| `/remote activity hide` or `/remote activity show` | Hide or show the widget. |
+| `/remote activity clear` | Mark all Activity updates as viewed. Keep registrations and history. |
+| `/remote doctor` | Check target capabilities. |
+| `/remote pause` or `/remote resume` | Pause or resume checks and notification submission. |
+| `/remote clear` | Forget monitoring registrations and clear Activity history. |
 
-Clear does not terminate jobs, delete target files, erase the conversation or retract notifications already submitted to Pi. It also forgets local job ownership. Jobs attached again are observe-only. `/remote activity clear` only marks Activity updates as viewed. It does not remove registrations or clear history.
+Jobs continue running while monitoring is paused. Three consecutive probe errors disable a watch. Recreate that watch to retry.
+
+### Monitor response records
+
+Record details show the notification and its associated assistant text:
+
+![Pi Monitor response detail with the associated notification and assistant text](docs/assets/remote-automation-response.png)
+
+In `/remote activity`, press `r` to view records for the current conversation branch, newest first. Use the up and down arrows to select a record, then Enter to inspect it. Esc returns to the record list, then Activity, then chat. The inspector shows a snapshot taken when you open Activity. Reopen it to see newer records.
+
+Each record contains notifications, event times and stored assistant text linked by explicit message IDs. Records describe the assistant's response to a notification. Check job status through `remote_job`.
+
+| Response status | Meaning |
+| --- | --- |
+| `response ended` | The assistant finished processing the notification. |
+| `interrupted` | Processing stopped early. |
+| `user handover / source uncertain` | User input or another message made the response's source uncertain. |
+| `incomplete / unknown` | The record lacks an end marker. |
+
+Chat shows Monitor processing markers for associated responses. Stored assistant messages with a known association receive a `Monitor-triggered response` label when rendered.
+
+### Clear monitoring
+
+Use `/remote clear` to remove the current session's watches, schedules, job monitoring registrations, unsubmitted events and Activity history. It saves the empty state, pauses monitoring and hides older Monitor response records in the inspector. Create new registrations to start monitoring again. The tool equivalent is `remote_control` with `action: "clear"`.
+
+Running jobs, target files and conversation text remain. Clear also removes local job ownership records, so jobs attached again are observe-only.
+
+Use `/remote activity clear` to mark updates as viewed while keeping registrations and history.
 
 ## Tools
 
@@ -99,11 +135,13 @@ Clear does not terminate jobs, delete target files, erase the conversation or re
 | `remote_job` | Start or attach to a job, inspect status or output, or cancel an owned job. |
 | `remote_control` | Inspect capabilities and control monitoring. |
 
-## Lifecycle and notification limits
+## Session and notifications
 
-Set `persist: true` when creating a watch or schedule to restore its configuration in the same session and target. Restored monitoring starts paused; use `/remote resume` to restart it. Missed intervals are not replayed. Managed jobs can continue after Pi exits. Job output is a bounded tail, not a full log.
+Set `persist: true` when creating a watch or schedule to restore its configuration in the same session and target. Restored monitoring starts paused. Use `/remote resume` to continue checks from the current time. Managed jobs can continue after Pi exits, and job output provides a bounded tail of recent output.
 
-If notification submission fails, check `/remote activity` and use `/remote resume` to retry. Setting `persist: false` does not prevent Activity history or pending events from being saved. Pi also records tool arguments in its session, so do not put credentials in commands or messages.
+`Follow-up requested` records notification submission to Pi. Open Monitor response records to inspect associated assistant replies. If submission fails, check `/remote activity` and use `/remote resume` to retry.
+
+The session stores Activity history, pending events and tool arguments. `persist` controls storage of watch and schedule configuration. Use credentials already configured on the target and review session content before sharing it.
 
 <details>
 <summary>Ask a coding agent to install</summary>
@@ -139,6 +177,6 @@ pi install "/absolute/path/to/pi-coding-agent/examples/extensions/ssh.ts"
 pi --ssh lab:/srv/project
 ```
 
-Do not combine legacy `--ssh` with the automation flags. Legacy SSH defaults to tmux jobs on POSIX targets and requires tmux for those jobs. Managed jobs also require Node.js 22 or later and an explicit `/remote deploy-runner` in Pi.
+Choose either legacy `--ssh` or the automation flags when starting Pi. Legacy SSH defaults to tmux jobs on POSIX targets and requires tmux for those jobs. Managed jobs also require Node.js 22 or later and an explicit `/remote deploy-runner` in Pi.
 
 </details>

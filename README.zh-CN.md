@@ -1,23 +1,23 @@
 # pi-remote-automation
 
-在 Pi 中监视本机或 SSH 目标上的任务，在条件满足时接收更新。你可以设置提醒、等待结果文件，或查看后台作业，无需离开会话。
+在 Pi 中监视本机或 SSH 目标上的任务，在条件满足时接收更新。在同一会话中设置提醒、等待结果文件、查看后台作业。
 
 监视和定时任务需要 Pi 会话保持运行。新建和恢复的会话初始都处于暂停状态。
 
 [English](README.md) | 简体中文
 
-[快速开始](#快速开始) · [使用示例](#使用示例) · [SSH 配置](#ssh-配置) · [查看和控制监视](#查看和控制监视) · [工具](#工具) · [生命周期和通知限制](#生命周期和通知限制)
+[快速开始](#快速开始) · [使用示例](#使用示例) · [SSH 配置](#ssh-配置) · [查看和控制监视](#查看和控制监视) · [工具](#工具) · [会话和通知](#会话和通知)
 
-Pi 中的本机提醒：
+本机 10 秒提醒，包含 Monitor 处理标记和 Activity 常驻栏：
 
 ![Pi 中的本机会话和 10 秒提醒](docs/assets/remote-automation-local.png)
 
 ## 快速开始
 
-在 Windows、Linux 或 macOS 上安装 Node.js 22 或更高版本，以及支持包管理的 Pi。在终端中将 `OWNER/REPO` 替换为实际仓库地址：
+在 Windows、Linux 或 macOS 上安装 Node.js 22 或更高版本，以及支持包管理的 Pi。在终端中克隆仓库：
 
 ```bash
-git clone https://github.com/OWNER/REPO.git
+git clone https://github.com/klay7w/pi-remote-automation.git
 ```
 
 使用检出目录的绝对路径安装：
@@ -32,7 +32,7 @@ pi install "/absolute/path/to/pi-remote-automation"
 pi install "C:/absolute/path/to/pi-remote-automation"
 ```
 
-Pi 直接从检出目录加载包，不会复制文件。重启 Pi，或在已有会话中运行 `/reload`。安装默认使用个人设置，添加 `-l` 可使用项目设置。运行 `pi list` 查看包，运行 `pi remove <source>` 移除包。
+Pi 直接从检出目录加载包。重启 Pi，或在已有会话中运行 `/reload`。安装默认使用个人设置，添加 `-l` 可使用项目设置。运行 `pi list` 查看包，运行 `pi remove <source>` 移除包。
 
 在终端中进入项目目录并启动 Pi：
 
@@ -48,7 +48,7 @@ cd C:/work/project
 pi
 ```
 
-自动化默认使用本机和 Pi 的当前目录。本机使用无需配置 SSH 或部署 runner。如需使用其他本地目录，启动 Pi 时运行 `pi --automation-target local --automation-cwd <absolute-project-path>`。
+pi-remote-automation 默认使用本机和 Pi 的当前目录。如需使用其他本地目录，启动 Pi 时运行 `pi --automation-target local --automation-cwd <absolute-project-path>`。
 
 在 Pi 中运行 `/remote resume`，然后输入：
 
@@ -58,13 +58,13 @@ pi
 
 ## 使用示例
 
-在 Pi 中输入以下提示。允许 Pi 执行命令前，请先检查它提出的命令。
+在 Pi 中输入以下提示：
 
-- 每 30 秒检查一次 `result.json` 是否出现，出现后通知我一次。不要启动或修改任何作业。
+- 每 30 秒检查一次 `result.json` 是否出现，出现后通知我一次。
 - 10 秒后提醒我检查这个项目。
 - 启动我指定的后台作业，然后查看其状态和输出。
 
-文件检查使用在所选目标上运行的自定义 JSON 探针，没有内置文件监视器。探针和作业命令可以执行任意代码，只授权你打算运行的命令。
+文件检查使用在所选目标上运行的自定义 JSON 探针。探针和作业命令使用目标用户的权限执行。执行前请检查 Pi 提出的命令。
 
 ## SSH 配置
 
@@ -80,15 +80,51 @@ pi --automation-target ssh:lab --automation-cwd /srv/project --automation-platfo
 pi --automation-target ssh:lab --automation-cwd C:/work/project --automation-platform win32
 ```
 
-在 Pi 中运行 `/remote doctor`，然后显式运行 `/remote deploy-runner` 和 `/remote resume`。部署会将随包提供的 runner 复制到 SSH 用户的状态目录。这些参数只影响自动化工具，不影响普通 Pi 工具。显式 SSH 不会回退到本机执行。
+在 Pi 中运行 `/remote doctor`，然后显式运行 `/remote deploy-runner` 和 `/remote resume`。部署会将随包提供的 runner 复制到 SSH 用户的状态目录。这些参数为自动化工具选择执行目标。设置 `--automation-target ssh:lab` 后，自动化命令在 `lab` 上执行。
 
 ## 查看和控制监视
 
-在 Pi 中用 `/remote activity` 查看活动，用 `/remote doctor` 查看可用能力。用 `/remote pause` 停止检查并暂停通知，用 `/remote resume` 恢复监视。暂停不会停止作业。连续三次探针出错后被禁用的监视不会因恢复监视而重新启用，需要重新创建。
+Activity 常驻栏最多显示三个活跃或未读的监视源，出错的监视源排在最前，其次是未读更新。打开 `/remote activity` 可查看完整列表、检查时间、观测结果和通知提交状态。
 
-用 `/remote clear` 移除当前会话的监视、定时任务、作业监视注册、尚未提交的事件和 Activity 历史。该命令会保存空状态，并使监视保持暂停。恢复监视不会找回已清除的注册。也可以让 Pi 调用 `remote_control`，将 `action` 设为 `"clear"`。
+| 命令 | 操作 |
+| --- | --- |
+| `/remote` 或 `/remote activity` | 打开 Activity，按 `r` 查看 Monitor 响应记录。 |
+| `/remote status` | 打开 Activity 概览。 |
+| `/remote jobs`、`/remote watches`、`/remote schedules` | 按监视源类型查看 Activity。 |
+| `/remote activity hide` 或 `/remote activity show` | 隐藏或显示常驻栏。 |
+| `/remote activity clear` | 将所有 Activity 更新标记为已查看，保留注册和历史。 |
+| `/remote doctor` | 检查目标能力。 |
+| `/remote pause` 或 `/remote resume` | 暂停或恢复检查与通知提交。 |
+| `/remote clear` | 移除监视注册并清空 Activity 历史。 |
 
-清空不会终止作业、删除目标文件、清除对话或撤回已提交给 Pi 的通知。它还会丢弃作业的本地所有权记录。重新附加这些作业后只能观察。`/remote activity clear` 只将 Activity 更新标记为已查看，不会移除注册或清空历史。
+暂停监视期间，作业继续运行。连续三次探针出错后，监视会被禁用。重新创建该监视即可重试。
+
+### Monitor 响应记录
+
+记录详情展示通知及其关联的助手文本：
+
+![Pi Monitor 响应详情中的关联通知和助手文本](docs/assets/remote-automation-response.png)
+
+在 `/remote activity` 中按 `r`，可查看当前对话分支的响应记录，最新记录排在最前。用上下方向键选择记录，按 Enter 查看详情。按 Esc 依次返回记录列表、Activity 和对话。查看器显示打开 Activity 时的快照，需要重新打开才能查看新记录。
+
+每条记录包含通知、事件时间，以及通过明确消息 ID 关联的已保存助手文本。记录描述助手对通知的响应过程。作业状态可通过 `remote_job` 查看。
+
+| 响应状态 | 含义 |
+| --- | --- |
+| `response ended` | 助手已完成对通知的处理。 |
+| `interrupted` | 处理提前中断。 |
+| `user handover / source uncertain` | 用户输入或其他消息使响应来源变得不确定。 |
+| `incomplete / unknown` | 记录缺少结束标记。 |
+
+对话中会为关联响应显示 Monitor 处理标记。已保存且关联明确的助手消息在渲染时带有 `Monitor-triggered response` 标签。
+
+### 清空监视
+
+用 `/remote clear` 移除当前会话的监视、定时任务、作业监视注册、尚未提交的事件和 Activity 历史。该命令保存空状态、暂停监视，并在查看器中隐藏较早的 Monitor 响应记录。再次监视时需要创建新的注册。对应的工具调用是 `remote_control`，参数为 `action: "clear"`。
+
+运行中的作业、目标文件和对话文本保持原状。清空还会移除作业的本地所有权记录，重新附加这些作业后只能观察。
+
+用 `/remote activity clear` 将更新标记为已查看，同时保留注册和历史。
 
 ## 工具
 
@@ -99,11 +135,13 @@ pi --automation-target ssh:lab --automation-cwd C:/work/project --automation-pla
 | `remote_job` | 启动或附加作业，查看状态或输出，或取消有所有权的作业。 |
 | `remote_control` | 查看可用能力并控制监视。 |
 
-## 生命周期和通知限制
+## 会话和通知
 
-创建监视或定时任务时设置 `persist: true`，可以在同一会话和目标中恢复其配置。恢复后监视处于暂停状态，使用 `/remote resume` 重新启动。错过的定期间隔不会重放。托管作业在 Pi 退出后仍可继续运行。作业输出只保留有限的末尾内容，不是完整日志。
+创建监视或定时任务时设置 `persist: true`，可以在同一会话和目标中恢复其配置。恢复后监视处于暂停状态，使用 `/remote resume` 从当前时间继续检查。托管作业在 Pi 退出后仍可继续运行，作业输出提供最近的有限末尾内容。
 
-如果通知提交失败，查看 `/remote activity` 并使用 `/remote resume` 重试。设置 `persist: false` 不能阻止 Activity 历史或待处理事件被保存。Pi 也会在会话中记录工具参数，因此不要在命令或消息中放入凭据。
+`Follow-up requested` 记录向 Pi 提交通知的状态。打开 Monitor 响应记录可查看关联的助手回复。提交失败时，查看 `/remote activity` 并使用 `/remote resume` 重试。
+
+会话保存 Activity 历史、待处理事件和工具参数。`persist` 控制监视和定时任务配置的保存。凭据使用目标上已有的配置，分享会话前请检查其内容。
 
 <details>
 <summary>让编码助手安装</summary>
@@ -139,6 +177,6 @@ pi install "/absolute/path/to/pi-coding-agent/examples/extensions/ssh.ts"
 pi --ssh lab:/srv/project
 ```
 
-不要将旧版 `--ssh` 与自动化参数混用。旧版 SSH 在 POSIX 目标上默认使用 tmux 作业，这类作业需要 tmux。托管作业还需要 Node.js 22 或更高版本，并需在 Pi 中显式运行 `/remote deploy-runner`。
+启动 Pi 时，在旧版 `--ssh` 和自动化参数之间选择一种配置方式。旧版 SSH 在 POSIX 目标上默认使用 tmux 作业，这类作业需要 tmux。托管作业还需要 Node.js 22 或更高版本，并需在 Pi 中显式运行 `/remote deploy-runner`。
 
 </details>
