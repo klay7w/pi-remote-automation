@@ -81,15 +81,17 @@ pi --automation-target ssh:lab --automation-cwd C:/work/project --automation-pla
 
 Activity 常驻栏最多显示三个活跃或未读的监视源，出错的监视源排在最前，其次是未读更新。打开 `/remote activity` 可查看完整列表、检查时间、观测结果和通知提交状态。
 
+在 `/remote` 后输入空格可查看子命令建议。在 `/remote activity` 后输入空格可查看 `hide`、`show` 和 `clear`。
+
 
 | 命令                                                   | 操作                                                  |
 | ---------------------------------------------------- | --------------------------------------------------- |
-| `/remote` 或 `/remote menu`                           | 打开 Remote 菜单。                                       |
+| `/remote` 或 `/remote menu`                           | 打开 Remote 菜单。选择 Activity 可查看活动、设置常驻栏显示或标记更新为已读。在 Activity 子菜单按 Esc 返回 Remote 主菜单。 |
 | `/remote activity`                                   | 打开 Activity，按 `r` 查看 Monitor 响应记录。                  |
 | `/remote model`                                      | 为当前会话选择事件响应模型，或恢复默认设置 **Follow main model**（跟随主模型）。 |
 | `/remote status`                                     | 打开 Activity 概览。                                     |
 | `/remote jobs`、`/remote watches`、`/remote schedules` | 按监视源类型查看 Activity。                                  |
-| `/remote activity hide` 或 `/remote activity show`    | 隐藏或显示常驻栏。                                           |
+| `/remote activity hide` 或 `/remote activity show`    | `hide` 隐藏常驻栏，`show` 恢复自动显示。                                           |
 | `/remote activity clear`                             | 将所有 Activity 更新标记为已查看，保留注册和历史。                      |
 | `/remote doctor`                                     | 检查目标能力。                                             |
 | `/remote pause` 或 `/remote resume`                   | 暂停或恢复检查与通知提交。                                       |
@@ -102,7 +104,7 @@ Activity 常驻栏最多显示三个活跃或未读的监视源，出错的监�
 
 默认情况下，监视通知会等到主助手空闲后再发给它。要让其他模型单独回复通知，打开 `/remote model`，选择一个 `provider/model` 条目。如果你在 Pi 中限定了模型范围，列表会先显示范围内的模型。选择 `Show all available models` 可查看全部可用模型。Pi 会为当前会话保存这项选择。要恢复默认设置，选择 `Follow main model`。
 
-所选模型只能看到事件详情，不能调用工具，也看不到聊天记录。即使主助手正忙，它也可以回复。你可以在对话和 Monitor 响应记录中看到回复及模型名称。主助手不会因此开始新一轮对话。只记入 Activity 的更新不会调用任何模型。
+所选模型只能看到事件详情，不能调用工具，也看不到聊天记录。即使主助手正忙，它也可以回复。对话和 Monitor 响应记录详情都会显示模型名称，并按 Markdown 格式显示回复正文。主助手不会因此开始新一轮对话。只记入 Activity 的更新不会调用任何模型。
 
 如果所选模型未能回复，监视会暂停，待处理事件会保留。检查该模型是否可用、凭据是否有效，或改选其他模型，然后运行 `/remote resume` 重试。监视不会自动切换模型。
 

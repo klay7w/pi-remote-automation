@@ -81,14 +81,16 @@ In Pi, run `/remote doctor`, then explicitly run `/remote deploy-runner` and `/r
 
 The Activity widget shows up to three active or unread sources. Sources with errors appear first, followed by unread updates. Open `/remote activity` for the full list, check times, observations and notification submission status.
 
+Type a space after `/remote` to see suggested subcommands. Type a space after `/remote activity` to see `hide`, `show`, and `clear`.
+
 | Command | Action |
 | --- | --- |
-| `/remote` or `/remote menu` | Open the Remote menu. |
+| `/remote` or `/remote menu` | Open the Remote menu. Select Activity to view updates, change widget visibility, or mark updates as read. Press Esc in the Activity submenu to return to the Remote menu. |
 | `/remote activity` | Open Activity. Press `r` for Monitor response records. |
 | `/remote model` | Select the event response model for this session or return to **Follow main model** (default). |
 | `/remote status` | Open the Activity overview. |
 | `/remote jobs`, `/remote watches`, `/remote schedules` | Show Activity for one source type. |
-| `/remote activity hide` or `/remote activity show` | Hide or show the widget. |
+| `/remote activity hide` or `/remote activity show` | `hide` hides the widget. `show` restores automatic visibility. |
 | `/remote activity clear` | Mark all Activity updates as viewed. Keep registrations and history. |
 | `/remote doctor` | Check target capabilities. |
 | `/remote pause` or `/remote resume` | Pause or resume checks and notification submission. |
@@ -100,7 +102,7 @@ Jobs continue running while monitoring is paused. Three consecutive probe errors
 
 By default, monitoring waits until the main assistant is idle, then sends it a follow-up. To keep monitoring replies separate, open `/remote model` and choose a `provider/model` entry. If you configured a model scope in Pi, the picker shows those models first. Choose `Show all available models` to see the full list. Pi saves your choice for this session. Select `Follow main model` to restore the default.
 
-The selected model receives only the event details, without tools or chat history. It can reply while the main assistant is busy. Its reply appears under the model's name in chat and in Monitor response records. It does not start a main assistant turn. Activity-only updates do not call either model.
+The selected model receives only the event details, without tools or chat history. It can reply while the main assistant is busy. Chat and Monitor record details show the model name and render its reply as Markdown. It does not start a main assistant turn. Activity-only updates do not call either model.
 
 If the selected model fails to respond, monitoring pauses and keeps the events for retry. Check the model and its credentials, or select another model. Run `/remote resume` to retry. Monitoring does not switch models on its own.
 

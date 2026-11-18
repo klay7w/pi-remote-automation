@@ -1,5 +1,5 @@
-import type { ExtensionContext, SessionEntry, Theme } from '@earendil-works/pi-coding-agent';
-import { Text, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
+import { getMarkdownTheme, type ExtensionContext, type SessionEntry, type Theme } from '@earendil-works/pi-coding-agent';
+import { Container, Markdown, Text, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 import { clean } from './ssh.ts';
 
 export type Activity = {
@@ -42,9 +42,21 @@ export function activityWidget(sources: Activity[], paused: boolean, theme: Them
   };
 }
 
+export function responseMarkdown(body: string) {
+  const markdown = new Markdown(body, 0, 0, getMarkdownTheme());
+  return {
+    invalidate() { markdown.invalidate(); },
+    render(width: number) {
+      if (width <= 0) return [];
+      const margin = Math.min(4, width - 1);
+      return markdown.render(width - margin).map(line => ' '.repeat(margin) + truncateToWidth(line, width - margin));
+    },
+  };
+}
+
 export const MODEL_RESPONSE = 'remote-automation-model-response';
 export const RESPONSE_CLEAR = 'remote-automation-response-clear';
-export type ResponseRecord = { title: string; status: string; at: string; detail: () => string };
+export type ResponseRecord = { title: string; status: string; at: string; detail: () => string; markdownDetail?: () => [string, string, string] };
 const recordTime = (value: unknown) => {
   const date = typeof value === 'string' || typeof value === 'number' ? new Date(value) : new Date(NaN);
   return Number.isFinite(date.getTime()) ? date.toISOString() : 'time unavailable';
@@ -114,12 +126,10 @@ export function responseRecords(branch: SessionEntry[], eventType: string, prove
     if (typeof d?.model !== 'string' || !Array.isArray(d.events)) continue;
     const title = singleLine(d.model), at = recordTime(e.timestamp);
     const status = d.error ? 'Model failed · retry with /remote resume' : 'Model response';
-    records.push({ title, at, status, detail: () => clean(`${title} · ${at} · ${status}
-
-${d.error ?? d.reply}
-
-Associated event facts:
-${JSON.stringify(d.events, null, 2)}`, Infinity) });
+    const parts = (): [string, string, string] => [clean(`${title} · ${at} · ${status}`, Infinity),
+      clean(String(d.error ?? d.reply), Infinity), clean(`Associated event facts:\n${JSON.stringify(d.events, null, 2)}`, Infinity)];
+    records.push({ title, at, status, detail: () => parts().join('\n\n'),
+      ...(!d.error && typeof d.reply === 'string' ? { markdownDetail: parts } : {}) });
   }
   for (const s of segments.values()) {
     const notes = notifications.filter(e => typeof batchOf(e) === 'string' && s.batches.has(batchOf(e) as string));
@@ -155,12 +165,19 @@ export async function inspectActivity(ctx: ExtensionContext, sources: Activity[]
     let offset = 0, total = 0, page = 1, selected = 0;
     let view: 'overview' | 'responses' | 'detail' = 'overview';
     const text = new Text(lines.join('\n'), 0, 0);
+    let detail: Container | undefined;
     const switchView = (next: typeof view) => {
-      view = next; offset = 0;
-      text.setText(next === 'overview' ? lines.join('\n') : next === 'detail' ? responses![selected].detail() : '');
+      view = next; offset = 0; detail = undefined;
+      const parts = next === 'detail' ? responses![selected].markdownDetail?.() : undefined;
+      if (parts) {
+        detail = new Container();
+        detail.addChild(new Text(parts[0] + '\n', 0, 0));
+        detail.addChild(responseMarkdown(parts[1]));
+        detail.addChild(new Text('\n' + parts[2], 0, 0));
+      } else text.setText(next === 'overview' ? lines.join('\n') : next === 'detail' ? responses![selected].detail() : '');
     };
     return {
-      invalidate() { text.invalidate(); },
+      invalidate() { text.invalidate(); detail?.invalidate(); },
       render(width) {
         width = Math.max(0, width);
         if (view === 'responses') {
@@ -174,7 +191,7 @@ export async function inspectActivity(ctx: ExtensionContext, sources: Activity[]
             '↑/↓ select · Enter inspect · Esc back to Activity',
           ].map(line => truncateToWidth(line, width));
         }
-        const rendered = text.render(Math.max(1, width)).map(line => truncateToWidth(line, width));
+        const rendered = (detail ?? text).render(Math.max(1, width)).map(line => truncateToWidth(line, width));
         total = rendered.length;
         page = Math.max(1, Math.min(24, tui.terminal.rows - 4));
         offset = Math.min(offset, Math.max(0, total - page));

@@ -1,10 +1,10 @@
 import type { ExtensionAPI, ExtensionContext } from '@earendil-works/pi-coding-agent';
-import { Text, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
+import { Container, Text, truncateToWidth, visibleWidth } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 import { Runtime, STATE, EVENT, type Input, type Fact } from './runtime.ts';
 import { clean } from './ssh.ts';
 import { target, transport } from './target.ts';
-import { activityRows, activityWidget, inspectActivity, responseRecords, MODEL_RESPONSE, RESPONSE_CLEAR } from './activity.ts';
+import { activityRows, activityWidget, inspectActivity, responseMarkdown, responseRecords, MODEL_RESPONSE, RESPONSE_CLEAR } from './activity.ts';
 
 // getFlag is extension-scoped; do not register another extension's --ssh flag.
 // shortcut: mirror only Pi's unconditional value consumers, update when its CLI adds one.
@@ -153,7 +153,11 @@ export default function (pi: ExtensionAPI) {
   pi.registerEntryRenderer(MODEL_RESPONSE, (entry, _options, theme) => {
     const d = entry.data as { model?: string; reply?: string; error?: string } | undefined;
     if (typeof d?.model !== 'string' || typeof (d.error ?? d.reply) !== 'string') return undefined;
-    return new Text(theme.fg(d.error ? 'warning' : 'accent', `📡 ${clean(d.model, 240)} · Monitor response`) + '\n' + clean(d.error ?? d.reply ?? '', 8192), 0, 0);
+    const content = new Container();
+    content.addChild(new Text(theme.fg(d.error ? 'warning' : 'accent', `📡 ${clean(d.model, 240)} · Monitor response`), 0, 0));
+    const body = clean(d.error ?? d.reply ?? '', 8192);
+    content.addChild(d.error ? new Text(body, 0, 0) : responseMarkdown(body));
+    return content;
   });
   pi.registerMessageRenderer(EVENT, (message, { expanded }, theme) => {
     const details = message.details as { events?: Fact[]; requestedAt?: number } | undefined;
@@ -324,14 +328,67 @@ export default function (pi: ExtensionAPI) {
     });
   }
   pi.registerCommand('remote', {
-    description: 'Remote menu, model, activity [hide|show|clear (acknowledge only)], status/jobs/watches/schedules, pause/resume, clear (forget monitoring; no job kill), doctor/deploy-runner',
+    description: 'Remote monitoring and controls',
+    getArgumentCompletions: prefix => {
+      const commands = [
+        { value: 'menu', label: 'menu', description: 'Open the remote menu' },
+        { value: 'activity ', label: 'activity', description: 'Inspect activity or choose a visibility action' },
+        { value: 'model', label: 'model', description: 'Choose the event response model' },
+        { value: 'status', label: 'status', description: 'Inspect monitoring status' },
+        { value: 'jobs', label: 'jobs', description: 'Inspect jobs' },
+        { value: 'watches', label: 'watches', description: 'Inspect watches' },
+        { value: 'schedules', label: 'schedules', description: 'Inspect schedules' },
+        { value: 'pause', label: 'pause', description: 'Pause monitoring' },
+        { value: 'resume', label: 'resume', description: 'Resume monitoring' },
+        { value: 'clear', label: 'clear', description: 'Forget monitoring; does not kill jobs' },
+        { value: 'doctor', label: 'doctor', description: 'Check remote capabilities' },
+        { value: 'deploy-runner', label: 'deploy-runner', description: 'Deploy the managed runner' },
+      ];
+      const children = [
+        { value: 'activity hide', label: 'hide', description: 'Hide the activity widget for this session' },
+        { value: 'activity show', label: 'show', description: 'Restore automatic activity widget visibility' },
+        { value: 'activity clear', label: 'clear', description: 'Acknowledge activity updates' },
+      ];
+      const matches = (prefix.startsWith('activity ') ? children : commands).filter(item => item.value.startsWith(prefix));
+      return matches.length ? matches : null;
+    },
     handler: async (args, ctx) => {
       const owner = runtime;
       try {
         const r = current();
         const requested = args.trim();
-        const action = !requested || requested === 'menu' ? await ctx.ui.select(title, ['activity', 'model', 'status', 'jobs', 'watches', 'schedules', 'pause', 'resume', 'doctor'], { signal: r.lifetime.signal }) : requested;
-        if (!action || runtime !== r) return;
+        let action = requested;
+        if (!requested || requested === 'menu') {
+          const menu = {
+            'Activity ›': 'activity menu',
+            'Status · View monitoring overview': 'status',
+            'Jobs · View job activity': 'jobs',
+            'Watches · View watch activity': 'watches',
+            'Schedules · View schedule activity': 'schedules',
+            'Model · Choose event response model': 'model',
+            'Pause · Pause checks and notifications': 'pause',
+            'Resume · Resume checks and notifications': 'resume',
+            'Doctor · Check target capabilities': 'doctor',
+          };
+          const activity = {
+            'View activity · Open the activity inspector': 'activity',
+            'Hide widget · Hide activity for this session': 'activity hide',
+            'Show widget · Restore automatic visibility': 'activity show',
+            'Mark updates as read · Keep registrations and history': 'activity clear',
+          };
+          while (runtime === r && !r.lifetime.signal.aborted) {
+            const choice = await ctx.ui.select(title, Object.keys(menu), { signal: r.lifetime.signal });
+            if (!choice || runtime !== r || r.lifetime.signal.aborted) return;
+            action = menu[choice as keyof typeof menu];
+            if (action !== 'activity menu') break;
+            const child = await ctx.ui.select(`${title} · Activity`, Object.keys(activity), { signal: r.lifetime.signal });
+            if (runtime !== r || r.lifetime.signal.aborted) return;
+            if (!child) continue;
+            action = activity[child as keyof typeof activity];
+            break;
+          }
+        }
+        if (!action || runtime !== r || r.lifetime.signal.aborted) return;
         if (action === 'model') {
           const main = 'Follow main model', all = 'Show all available models', scope = 'Show scoped models';
           const signal = r.lifetime.signal;
