@@ -20,13 +20,15 @@ function seconds(value: unknown, fallback: number, min = 5): number {
   if (typeof n !== 'number' || !Number.isInteger(n) || n < min || n > 86400) throw new Error(`Seconds must be an integer from ${min} to 86400`);
   return n;
 }
+type ReplyVia = 'main' | 'selected';
+const validReplyVia = (route: unknown) => route === undefined || route === 'main' || route === 'selected';
 export type Input = Execution & {
-  backend?: 'managed' | 'tmux';
+  backend?: 'managed' | 'tmux'; replyVia?: ReplyVia;
   action: string; id?: string; command?: string; match?: string; mode?: 'once' | 'change' | 'cooldown';
   every?: number; cooldown?: number; delay?: number; message?: string; persist?: boolean; socket?: string; pane?: string; label?: string; delivery?: 'activity' | 'followUp';
 };
-export type Fact = { source: 'watch' | 'schedule' | 'job'; id: string; condition: string; evidence: string; first: number; last: number; count: number; label?: string };
-type Delivery = { delivery?: 'activity' | 'followUp'; pending?: string; pendingAt?: number; pendingCondition?: string; deliveryError?: boolean };
+export type Fact = { replyVia?: ReplyVia; source: 'watch' | 'schedule' | 'job'; id: string; condition: string; evidence: string; first: number; last: number; count: number; label?: string };
+type Delivery = { replyVia?: ReplyVia; delivery?: 'activity' | 'followUp'; pending?: string; pendingAt?: number; pendingCondition?: string; deliveryError?: boolean };
 type Task = Delivery & Execution & {
   id: string; kind: 'watch' | 'schedule'; label?: string; command?: string; match?: string; message?: string;
   mode: 'once' | 'change' | 'cooldown'; every: number; cooldown: number; next: number;
@@ -35,7 +37,7 @@ type Task = Delivery & Execution & {
 type Job = Delivery & { backend?: 'managed' | 'tmux'; id: string; owned: boolean; token?: string; label?: string; state: string; socket?: string; pane?: string; reported?: boolean; next?: number; failures?: number; monitoring?: boolean; exitCode?: number; exitSignal?: string };
 type ResponseModel = { provider: string; id: string };
 type Snapshot = { version: 1; responseModel?: ResponseModel; session: string; target: string; tasks: Task[]; jobs: Job[]; events?: Fact[]; activity?: Activity[]; history?: Observation[]; historyTruncated?: boolean };
-export type Hooks = { save: (state: Snapshot) => void; notify: (events: Fact[], signal: AbortSignal) => void | Promise<() => void>; idle?: () => boolean; changed?: () => void };
+export type Hooks = { save: (state: Snapshot) => void; notify: (events: Fact[], signal: AbortSignal, selected: ResponseModel | undefined) => void | Promise<() => void>; idle?: () => boolean; changed?: () => void };
 
 export class Runtime {
   tasks = new Map<string, Task>();
@@ -49,7 +51,7 @@ export class Runtime {
   private batchTimer?: ReturnType<typeof setTimeout>;
   private deadline?: number;
   private flushing?: AbortController;
-  private inFlightCount = 0;
+  private inFlight = new Set<Fact>();
   readonly lifetime = new AbortController();
   responseModel?: ResponseModel;
   selectModel(model?: ResponseModel) {
@@ -75,7 +77,7 @@ export class Runtime {
     if (!Array.isArray(s.tasks) || !Array.isArray(s.jobs) || s.tasks.length > 100 || s.jobs.length > 100) return false;
     // Persisted entries are data, not authority to start anything: restored tasks always pause.
     for (const t of s.tasks) {
-      if (!t || !/^[a-f0-9]{32}$/.test(t.id) || !['watch', 'schedule'].includes(t.kind) || !t.persist) continue;
+      if (!t || !validReplyVia(t.replyVia) || !/^[a-f0-9]{32}$/.test(t.id) || !['watch', 'schedule'].includes(t.kind) || !t.persist) continue;
       try {
         if (t.command !== undefined || t.program !== undefined) execution(t, this.run.destination?.platform, this.run.destination?.legacy ?? true);
         if (t.message !== undefined) text(t.message, 'message');
@@ -88,7 +90,7 @@ export class Runtime {
       } catch { /* Invalid stored record stays inert. */ }
     }
     for (const j of s.jobs) {
-      if (j && /^pra_[a-f0-9]{32}$/.test(j.id) && typeof j.owned === 'boolean' &&
+      if (j && validReplyVia(j.replyVia) && /^pra_[a-f0-9]{32}$/.test(j.id) && typeof j.owned === 'boolean' &&
           (!j.owned || (typeof j.token === 'string' && /^[a-f0-9]{32}$/.test(j.token)))) {
         if (j.backend !== undefined && !['managed', 'tmux'].includes(j.backend)) continue;
         if (j.backend === 'managed' && j.socket !== undefined) continue;
@@ -98,11 +100,11 @@ export class Runtime {
     }
     if (Array.isArray(s.events)) {
       for (const e of s.events.slice(0, 200)) {
-        if (!e || !['watch', 'schedule', 'job'].includes(e.source) ||
+        if (!e || !validReplyVia(e.replyVia) || !['watch', 'schedule', 'job'].includes(e.source) ||
             !/^(?:pra_)?[a-f0-9]{32}$/.test(e.id) || typeof e.evidence !== 'string' ||
             typeof e.condition !== 'string' || !Number.isFinite(e.first) || !Number.isFinite(e.last) ||
             !Number.isSafeInteger(e.count) || e.count < 1) continue;
-        this.events.push({ source: e.source, id: e.id, condition: clean(e.condition, 128), evidence: clean(e.evidence, 1024), first: e.first, last: e.last, count: e.count, label: label(e.label) });
+        this.events.push({ replyVia: e.replyVia, source: e.source, id: e.id, condition: clean(e.condition, 128), evidence: clean(e.evidence, 1024), first: e.first, last: e.last, count: e.count, label: label(e.label) });
       }
     }
     for (const e of this.events) {
@@ -197,7 +199,7 @@ export class Runtime {
   }
   private invalidate() {
     this.generation++;
-    this.flushing?.abort(); this.flushing = undefined;
+    this.flushing?.abort(); this.flushing = undefined; this.inFlight.clear();
     this.ticking = false;
     clearTimeout(this.timer);
     clearTimeout(this.batchTimer);
@@ -225,7 +227,7 @@ export class Runtime {
   }
   private arm() {
     clearTimeout(this.timer);
-    if (this.stopped || this.paused || this.ticking) return;
+    if (this.stopped || this.paused || this.capacityBlocked || this.ticking) return;
     for (const r of [...this.tasks.values(), ...this.jobs.values()]) if (r.pending) this.deliver(r);
     if (this.paused) return;
     const due = [...this.tasks.values()].filter(t => t.enabled && !t.pending).map(t => t.next);
@@ -250,12 +252,12 @@ export class Runtime {
     const source = 'kind' in record ? record.kind : 'job';
     const condition = record.pendingCondition ?? (record.pending.includes('condition UNKNOWN') || record.pending.includes('connection/pane UNKNOWN') ? 'attention' : 'observed');
     record.pendingAt ??= Date.now();
-    const existing = condition === 'attention' ? this.events.find((e, i) => (!this.flushing || i >= this.inFlightCount) && e.id === record.id && e.source === source && e.condition === condition) : undefined;
+    const existing = condition === 'attention' ? this.events.find(e => !this.inFlight.has(e) && e.replyVia === record.replyVia && e.id === record.id && e.source === source && e.condition === condition) : undefined;
     if (existing) {
       existing.count++; existing.last = record.pendingAt; existing.evidence = clean(record.pending, 1024);
     } else {
       if (this.events.length >= 200) { this.capacityBlocked = true; this.paused = true; this.invalidate(); this.save(); return; }
-      this.events.push({ source, id: record.id, condition, evidence: clean(record.pending, 1024), first: record.pendingAt, last: record.pendingAt, count: 1, label: record.label });
+      this.events.push({ replyVia: record.replyVia, source, id: record.id, condition, evidence: clean(record.pending, 1024), first: record.pendingAt, last: record.pendingAt, count: 1, label: record.label });
     }
     // The queue now owns this observation; polling may continue independently.
     record.pending = undefined; record.pendingAt = undefined;
@@ -277,13 +279,18 @@ export class Runtime {
   private async flush() {
     if (this.stopped || this.paused || this.flushing || !this.events.length) return;
     if (Date.now() < (this.deadline ?? Infinity)) { this.armBatch(); return; }
-    if (this.ticking || this.hooks.idle?.() === false) return;
+    if (this.ticking) return;
+    const model = this.responseModel;
+    const route = (e: Fact) => model && e.replyVia !== 'main' ? 'selected' : 'main';
+    const idle = this.hooks.idle?.() !== false;
+    const first = this.events.find(e => route(e) === 'selected' || idle);
+    if (!first) return;
+    const via = route(first);
+    const batch = this.events.filter(e => route(e) === via).slice(0, 20);
+    this.inFlight = new Set(batch);
     const controller = this.flushing = new AbortController();
-    const independent = Boolean(this.responseModel);
-    const batch = this.events.slice(0, 20);
-    this.inFlightCount = batch.length;
     try {
-      const pending = this.hooks.notify(batch.map(e => ({ ...e })), controller.signal);
+      const pending = this.hooks.notify(batch.map(e => ({ ...e })), controller.signal, via === 'selected' ? model : undefined);
       if (pending) {
         const record = await pending;
         if (controller.signal.aborted) return;
@@ -298,10 +305,11 @@ export class Runtime {
       this.paused = true; this.invalidate(); this.save();
       return;
     }
-    this.events.splice(0, batch.length);
+    this.events = this.events.filter(e => !this.inFlight.has(e));
+    this.inFlight.clear();
     for (const e of batch) {
       const r = this.tasks.get(e.id) ?? this.jobs.get(e.id);
-      const a = this.activity.get(e.id); if (a) a.followUp = independent ? 'Model responded' : 'Follow-up requested';
+      const a = this.activity.get(e.id); if (a) a.followUp = via === 'selected' ? 'Model responded' : 'Follow-up requested';
       if (r) { r.deliveryError = false; if (e.source === 'job' && ['succeeded', 'failed'].includes(e.condition)) (r as Job).reported = true; }
     }
     this.deadline = undefined;
@@ -395,8 +403,8 @@ export class Runtime {
   }
   list(kind?: 'watch' | 'schedule') {
     return { paused: this.paused, pendingEvents: this.pendingCount, tasks: [...this.tasks.values()].filter(t => !kind || t.kind === kind)
-      .map(t => ({ id: t.id, label: t.label, kind: t.kind, enabled: t.enabled, failures: t.failures, next: t.next, persistent: t.persist, pendingDelivery: Boolean(t.pending) || this.events.some(e => e.id === t.id), deliveryError: t.deliveryError === true })),
-      ...(kind ? {} : { jobs: [...this.jobs.values()].map(({ id, label, owned, backend, state, monitoring, pending, deliveryError }) => ({ id, label, owned, backend: backend ?? 'tmux', state, monitoring: monitoring !== false, pendingDelivery: Boolean(pending) || this.events.some(e => e.id === id), deliveryError: deliveryError === true })) }) };
+      .map(t => ({ id: t.id, label: t.label, replyVia: t.replyVia ?? 'inherit', kind: t.kind, enabled: t.enabled, failures: t.failures, next: t.next, persistent: t.persist, pendingDelivery: Boolean(t.pending) || this.events.some(e => e.id === t.id), deliveryError: t.deliveryError === true })),
+      ...(kind ? {} : { jobs: [...this.jobs.values()].map(({ id, label, replyVia, owned, backend, state, monitoring, pending, deliveryError }) => ({ id, label, replyVia: replyVia ?? 'inherit', owned, backend: backend ?? 'tmux', state, monitoring: monitoring !== false, pendingDelivery: Boolean(pending) || this.events.some(e => e.id === id), deliveryError: deliveryError === true })) }) };
   }
   async control(action: string, signal?: AbortSignal) {
     if (this.stopped) throw new Error('Session closed');
@@ -416,8 +424,7 @@ export class Runtime {
       if (this.capacityBlocked) {
         this.deadline = Date.now(); void this.flush();
         // Let the full queue drain one batch before restarting checks.
-        if (this.flushing) return this.list();
-        if (this.events.length >= 200) { this.paused = true; this.hooks.changed?.(); return this.list(); }
+        if (this.capacityBlocked) { this.hooks.changed?.(); return this.list(); }
       }
       this.arm(); this.armBatch(); this.hooks.changed?.();
     }
@@ -455,13 +462,14 @@ export class Runtime {
     const mode = kind === 'watch' ? (input.mode ?? 'once') : (input.every === undefined ? 'once' : 'cooldown');
     if (!['once', 'change', 'cooldown'].includes(mode)) throw new Error('Invalid watch mode');
     if (input.delivery !== undefined && !['activity', 'followUp'].includes(input.delivery)) throw new Error('Invalid delivery');
-    const task: Task = { delivery: input.delivery ?? 'followUp', id: id(), kind, label: label(input.label), command, program, args: input.args, shell: input.shell, env: input.env, message, match, mode, every: seconds(input.every, 30),
+    if (!validReplyVia(input.replyVia)) throw new Error('Invalid replyVia');
+    const task: Task = { replyVia: input.replyVia, delivery: input.delivery ?? 'followUp', id: id(), kind, label: label(input.label), command, program, args: input.args, shell: input.shell, env: input.env, message, match, mode, every: seconds(input.every, 30),
       cooldown: seconds(input.cooldown, 60, 0), next: Date.now() + seconds(input.delay, 0, 0) * 1000,
       enabled: true, persist: input.persist === true, failures: 0 };
     if (kind === 'schedule') task.cooldown = 0;
     this.tasks.set(task.id, task);
     this.save(); this.arm();
-    return { id: task.id, paused: this.paused, persistent: task.persist,
+    return { id: task.id, replyVia: task.replyVia ?? 'inherit', paused: this.paused, persistent: task.persist,
       note: 'Use /remote resume to enable polling. Pause stops local checks, not remote jobs. Missed intervals coalesce; no catch-up replay. Restores always pause.' };
   }
 
@@ -469,6 +477,7 @@ export class Runtime {
     if (this.stopped) throw new Error('Session closed');
     if (input.action === 'list') return this.list().jobs;
     if (input.action === 'start' || input.action === 'attach') {
+      if (!validReplyVia(input.replyVia)) throw new Error('Invalid replyVia');
       const backend = input.socket !== undefined ? 'tmux' : input.backend ?? (this.run.destination && !this.run.destination.legacy ? 'managed' : 'tmux');
       if (input.backend !== undefined && !['managed', 'tmux'].includes(input.backend)) throw new Error('Invalid backend');
       if (input.socket !== undefined && input.backend === 'managed') throw new Error('socket/pane attachment requires tmux backend');
@@ -484,12 +493,12 @@ export class Runtime {
       execution(input, this.run.destination?.platform, this.run.destination?.legacy ?? true);
       if (backend === 'tmux' && (input.program || (input.shell && input.shell !== 'sh') || input.env?.length)) throw new Error('tmux start supports sh command only; use managed backend for structured execution');
       const command = input.command ?? '';
-      const job: Job = { id: `pra_${id()}`, owned: true, backend, token: id(), label: label(input.label), state: 'unknown' };
+      const job: Job = { replyVia: input.replyVia, id: `pra_${id()}`, owned: true, backend, token: id(), label: label(input.label), state: 'unknown' };
       this.jobs.set(job.id, job);
       this.save(); // Identity exists before submission; never automatically repeat an ambiguous launch.
       if (backend === 'managed') {
-        try { const result = await this.managed(job, 'start', signal, { execution: { command: input.command, program: input.program, args: input.args, shell: input.shell ?? (this.run.destination?.legacy ? 'sh' : undefined), env: input.env }, cwd: this.run.destination?.cwd }); this.requireJob(job); job.state = result.state; if (job.state === 'submitted') this.activity.get(job.id)!.startKnown = Date.now(); this.observe(job, job.state, '', '', true, false); this.save(); this.arm(); return result; }
-        catch (error) { this.arm(); return { id: job.id, state: 'unknown', error: diagnostic(error instanceof Error ? error.message : 'Submission failed'), note: 'Reconcile same identity; NEVER automatically relaunch' }; }
+        try { const result = await this.managed(job, 'start', signal, { execution: { command: input.command, program: input.program, args: input.args, shell: input.shell ?? (this.run.destination?.legacy ? 'sh' : undefined), env: input.env }, cwd: this.run.destination?.cwd }); this.requireJob(job); job.state = result.state; if (job.state === 'submitted') this.activity.get(job.id)!.startKnown = Date.now(); this.observe(job, job.state, '', '', true, false); this.save(); this.arm(); return { ...result, replyVia: job.replyVia ?? 'inherit' }; }
+        catch (error) { this.arm(); return { id: job.id, replyVia: job.replyVia ?? 'inherit', state: 'unknown', error: diagnostic(error instanceof Error ? error.message : 'Submission failed'), note: 'Reconcile same identity; NEVER automatically relaunch' }; }
       }
       const socket = quote(job.id), token = quote(job.token!);
       // Dedicated socket and gated pane: remain-on-exit and ownership are set before any user command runs.
@@ -507,26 +516,26 @@ export class Runtime {
       } catch {
         this.arm();
         // Reconcile with status using this exact id; absence never authorizes resubmission.
-        return { id: job.id, state: 'unknown', note: 'Submission outcome unknown. Use status with this id; do NOT retry start automatically.' };
+        return { id: job.id, replyVia: job.replyVia ?? 'inherit', state: 'unknown', note: 'Submission outcome unknown. Use status with this id; do NOT retry start automatically.' };
       }
-      return { id: job.id, state: job.state };
+      return { id: job.id, replyVia: job.replyVia ?? 'inherit', state: job.state };
     }
     if (input.action === 'attach' && input.socket !== undefined) {
       if (!/^[a-zA-Z0-9_-]{1,64}$/.test(input.socket) || !/^%[0-9]+$/.test(input.pane ?? '')) throw new Error('Attach requires socket label and pane %number');
       if (this.activity.size >= 300 || this.jobs.size >= 100 || this.events.length + this.tasks.size + this.jobs.size >= 200) throw new Error('Job or pending-event capacity reached');
-      const job: Job = { id: `pra_${id()}`, owned: false, socket: input.socket, pane: input.pane, label: label(input.label), state: 'unknown' };
+      const job: Job = { replyVia: input.replyVia, id: `pra_${id()}`, owned: false, socket: input.socket, pane: input.pane, label: label(input.label), state: 'unknown' };
       this.jobs.set(job.id, job); this.save(); this.arm();
-      return { id: job.id, observeOnly: true, note: 'Read-only monitoring; existing pane must retain exit status (remain-on-exit). Disappearing panes remain unknown, not failed.' };
+      return { id: job.id, replyVia: job.replyVia ?? 'inherit', observeOnly: true, note: 'Read-only monitoring; existing pane must retain exit status (remain-on-exit). Disappearing panes remain unknown, not failed.' };
     }
     const jobId = text(input.id, 'job id', 64);
     if (!/^pra_[a-f0-9]{32}$/.test(jobId)) throw new Error('Expected pi-remote job id');
     if (input.action === 'attach') {
       if (!this.jobs.has(jobId)) {
         if (this.activity.size >= 300 || this.jobs.size >= 100 || this.events.length + this.tasks.size + this.jobs.size >= 200) throw new Error('Job or pending-event capacity reached');
-        this.jobs.set(jobId, { id: jobId, owned: false, backend: input.backend ?? (this.run.destination && !this.run.destination.legacy ? 'managed' : 'tmux'), label: label(input.label), state: 'unknown' });
+        this.jobs.set(jobId, { replyVia: input.replyVia, id: jobId, owned: false, backend: input.backend ?? (this.run.destination && !this.run.destination.legacy ? 'managed' : 'tmux'), label: label(input.label), state: 'unknown' });
         this.save(); this.arm();
       }
-      return { id: jobId, observeOnly: !this.jobs.get(jobId)!.owned, note: 'Attached existing identity; no launch or cancellation authority granted.' };
+      return { id: jobId, replyVia: this.jobs.get(jobId)!.replyVia ?? 'inherit', observeOnly: !this.jobs.get(jobId)!.owned, note: 'Attached existing identity; no launch or cancellation authority granted.' };
     }
     const job = this.jobs.get(jobId);
     if (!job) throw new Error('Unknown job; attach its existing id first');

@@ -88,7 +88,7 @@ Activity 常驻栏最多显示三个活跃或未读的监视源，出错的监�
 | ---------------------------------------------------- | --------------------------------------------------- |
 | `/remote` 或 `/remote menu`                           | 打开 Remote 菜单。选择 Activity 可查看活动、设置常驻栏显示或标记更新为已读。在 Activity 子菜单按 Esc 返回 Remote 主菜单。 |
 | `/remote activity`                                   | 打开 Activity，按 `r` 查看 Monitor 响应记录。                  |
-| `/remote model`                                      | 为当前会话选择事件响应模型，或恢复默认设置 **Follow main model**（跟随主模型）。 |
+| `/remote model`                                      | 为 `replyVia: "selected"` 和省略 `replyVia` 的通知选择模型。选择 **Follow main model** 可恢复默认设置。 |
 | `/remote status`                                     | 打开 Activity 概览。                                     |
 | `/remote jobs`、`/remote watches`、`/remote schedules` | 按监视源类型查看 Activity。                                  |
 | `/remote activity hide` 或 `/remote activity show`    | `hide` 隐藏常驻栏，`show` 恢复自动显示。                                           |
@@ -104,9 +104,17 @@ Activity 常驻栏最多显示三个活跃或未读的监视源，出错的监�
 
 默认情况下，监视通知会等到主助手空闲后再发给它。要让其他模型单独回复通知，打开 `/remote model`，选择一个 `provider/model` 条目。如果你在 Pi 中限定了模型范围，列表会先显示范围内的模型。选择 `Show all available models` 可查看全部可用模型。Pi 会为当前会话保存这项选择。要恢复默认设置，选择 `Follow main model`。
 
-所选模型只能看到事件详情，不能调用工具，也看不到聊天记录。即使主助手正忙，它也可以回复。对话和 Monitor 响应记录详情都会显示模型名称，并按 Markdown 格式显示回复正文。主助手不会因此开始新一轮对话。只记入 Activity 的更新不会调用任何模型。
+创建监视或定时任务、启动作业或首次附加作业时，可以用 `replyVia` 指定谁来回复通知：
 
-如果所选模型未能回复，监视会暂停，待处理事件会保留。检查该模型是否可用、凭据是否有效，或改选其他模型，然后运行 `/remote resume` 重试。监视不会自动切换模型。
+- `replyVia: "main"`：等主助手空闲后，由主助手回复。
+- `replyVia: "selected"`：由发送通知时 `/remote model` 选中的模型回复。如果没选独立模型，通知会等主助手空闲后交给它，并提示你用 `/remote model` 选择模型。
+- 省略 `replyVia`：跟随会话的 `/remote model` 设置。
+
+如果所选模型请求失败，监视会暂停并保留待处理事件，不会改交主助手。检查凭据或改选模型后，运行 `/remote resume` 重试。
+
+如果只想在 Activity 中查看监视或定时任务的更新，设置 `delivery: "activity"`。
+
+所选模型只能看到事件详情，不能调用工具，也看不到聊天记录。即使主助手正忙，它也可以回复。对话和 Monitor 响应记录详情都会显示模型名称，并按 Markdown 格式显示回复正文。主助手不会因此开始新一轮对话。
 
 ### Monitor 响应记录
 

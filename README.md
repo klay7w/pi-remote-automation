@@ -87,7 +87,7 @@ Type a space after `/remote` to see suggested subcommands. Type a space after `/
 | --- | --- |
 | `/remote` or `/remote menu` | Open the Remote menu. Select Activity to view updates, change widget visibility, or mark updates as read. Press Esc in the Activity submenu to return to the Remote menu. |
 | `/remote activity` | Open Activity. Press `r` for Monitor response records. |
-| `/remote model` | Select the event response model for this session or return to **Follow main model** (default). |
+| `/remote model` | Choose the model for `replyVia: "selected"` and for notifications that omit `replyVia`. Choose **Follow main model** to restore the default. |
 | `/remote status` | Open the Activity overview. |
 | `/remote jobs`, `/remote watches`, `/remote schedules` | Show Activity for one source type. |
 | `/remote activity hide` or `/remote activity show` | `hide` hides the widget. `show` restores automatic visibility. |
@@ -102,9 +102,17 @@ Jobs continue running while monitoring is paused. Three consecutive probe errors
 
 By default, monitoring waits until the main assistant is idle, then sends it a follow-up. To keep monitoring replies separate, open `/remote model` and choose a `provider/model` entry. If you configured a model scope in Pi, the picker shows those models first. Choose `Show all available models` to see the full list. Pi saves your choice for this session. Select `Follow main model` to restore the default.
 
-The selected model receives only the event details, without tools or chat history. It can reply while the main assistant is busy. Chat and Monitor record details show the model name and render its reply as Markdown. It does not start a main assistant turn. Activity-only updates do not call either model.
+Use `replyVia` to choose who replies when you create a watch or schedule, start a job, or attach a job for the first time:
 
-If the selected model fails to respond, monitoring pauses and keeps the events for retry. Check the model and its credentials, or select another model. Run `/remote resume` to retry. Monitoring does not switch models on its own.
+- `replyVia: "main"` sends the notification to the main assistant once it is idle.
+- `replyVia: "selected"` uses the model selected in `/remote model` when the notification is sent. If no separate model is selected, the notification waits for the main assistant to become idle and includes a note about how to select a model.
+- Omit `replyVia` to follow the session's `/remote model` setting.
+
+If a request to the selected model fails, monitoring pauses and keeps the events for retry rather than sending them to the main assistant. Check the credentials or choose another model, then run `/remote resume` to retry.
+
+To see watch or schedule updates only in Activity, set `delivery: "activity"`.
+
+The selected model receives only the event details, without tools or chat history. It can reply while the main assistant is busy. Chat and Monitor record details show the model name and render its reply as Markdown. It does not start a main assistant turn.
 
 ### Monitor response records
 
