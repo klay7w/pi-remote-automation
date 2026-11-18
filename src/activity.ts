@@ -6,7 +6,7 @@ export type Activity = {
   id: string; source: 'watch' | 'schedule' | 'job'; label?: string; state: string; active: boolean;
   observedSince: number; startKnown?: number; lastChecked?: number; lastSuccessfulCheck?: number;
   lastObserved: string; lastChange?: number; nextCheck?: number; errors: number; unread: boolean;
-  followUp: 'None' | 'Pending' | 'Follow-up requested' | 'Submission failed';
+  followUp: 'None' | 'Pending' | 'Follow-up requested' | 'Submission failed' | 'Model responded';
 };
 export type Observation = { id: string; at: number; state: string; summary: string; evidence: string };
 export const singleLine = (value: string, cap = 240) => clean(value, cap).replace(/\s+/g, ' ').trim();
@@ -42,6 +42,7 @@ export function activityWidget(sources: Activity[], paused: boolean, theme: Them
   };
 }
 
+export const MODEL_RESPONSE = 'remote-automation-model-response';
 export const RESPONSE_CLEAR = 'remote-automation-response-clear';
 export type ResponseRecord = { title: string; status: string; at: string; detail: () => string };
 const recordTime = (value: unknown) => {
@@ -107,6 +108,19 @@ export function responseRecords(branch: SessionEntry[], eventType: string, prove
     } };
   };
   const records: ResponseRecord[] = [];
+  for (const e of entries) {
+    if (e.type !== 'custom' || e.customType !== MODEL_RESPONSE) continue;
+    const d = e.data as { model?: string; reply?: string; error?: string; events?: unknown[] } | undefined;
+    if (typeof d?.model !== 'string' || !Array.isArray(d.events)) continue;
+    const title = singleLine(d.model), at = recordTime(e.timestamp);
+    const status = d.error ? 'Model failed · retry with /remote resume' : 'Model response';
+    records.push({ title, at, status, detail: () => clean(`${title} · ${at} · ${status}
+
+${d.error ?? d.reply}
+
+Associated event facts:
+${JSON.stringify(d.events, null, 2)}`, Infinity) });
+  }
   for (const s of segments.values()) {
     const notes = notifications.filter(e => typeof batchOf(e) === 'string' && s.batches.has(batchOf(e) as string));
     notes.forEach(e => used.add(e.id));

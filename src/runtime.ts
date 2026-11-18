@@ -33,8 +33,9 @@ type Task = Delivery & Execution & {
   enabled: boolean; persist: boolean; failures: number; previous?: string; last?: number;
 };
 type Job = Delivery & { backend?: 'managed' | 'tmux'; id: string; owned: boolean; token?: string; label?: string; state: string; socket?: string; pane?: string; reported?: boolean; next?: number; failures?: number; monitoring?: boolean; exitCode?: number; exitSignal?: string };
-type Snapshot = { version: 1; session: string; target: string; tasks: Task[]; jobs: Job[]; events?: Fact[]; activity?: Activity[]; history?: Observation[]; historyTruncated?: boolean };
-export type Hooks = { save: (state: Snapshot) => void; notify: (events: Fact[]) => void; idle?: () => boolean; changed?: () => void };
+type ResponseModel = { provider: string; id: string };
+type Snapshot = { version: 1; responseModel?: ResponseModel; session: string; target: string; tasks: Task[]; jobs: Job[]; events?: Fact[]; activity?: Activity[]; history?: Observation[]; historyTruncated?: boolean };
+export type Hooks = { save: (state: Snapshot) => void; notify: (events: Fact[], signal: AbortSignal) => void | Promise<() => void>; idle?: () => boolean; changed?: () => void };
 
 export class Runtime {
   tasks = new Map<string, Task>();
@@ -47,7 +48,14 @@ export class Runtime {
   private events: Fact[] = [];
   private batchTimer?: ReturnType<typeof setTimeout>;
   private deadline?: number;
-  private flushing = false;
+  private flushing?: AbortController;
+  private inFlightCount = 0;
+  readonly lifetime = new AbortController();
+  responseModel?: ResponseModel;
+  selectModel(model?: ResponseModel) {
+    this.responseModel = model;
+    this.save(); this.armBatch();
+  }
   private capacityBlocked = false;
   private generation = 0;
   private active = new Set<AbortController>();
@@ -59,6 +67,10 @@ export class Runtime {
   restore(raw: unknown) {
     const s = raw as Snapshot | undefined;
     if (!s || s.version !== 1 || s.session !== this.session || s.target !== this.target) return false;
+    if (s.responseModel !== undefined) {
+      if (!s.responseModel || typeof s.responseModel.provider !== 'string' || !s.responseModel.provider || typeof s.responseModel.id !== 'string' || !s.responseModel.id) return false;
+      this.responseModel = { provider: s.responseModel.provider, id: s.responseModel.id };
+    }
     if (s.events !== undefined && (!Array.isArray(s.events) || s.events.length > 200)) return false;
     if (!Array.isArray(s.tasks) || !Array.isArray(s.jobs) || s.tasks.length > 100 || s.jobs.length > 100) return false;
     // Persisted entries are data, not authority to start anything: restored tasks always pause.
@@ -102,7 +114,7 @@ export class Runtime {
       const restored: Activity = { id: a.id, source: a.source, label: label(a.label), state: singleLine(a.state, 128),
         lastObserved: singleLine(a.lastObserved), observedSince: a.observedSince, active: false, unread: a.unread === true,
         errors: Number.isSafeInteger(a.errors) && a.errors >= 0 ? a.errors : 0,
-        followUp: ['Pending', 'Follow-up requested', 'Submission failed'].includes(a.followUp) ? a.followUp : 'None' };
+        followUp: ['Pending', 'Follow-up requested', 'Submission failed', 'Model responded'].includes(a.followUp) ? a.followUp : 'None' };
       for (const key of ['startKnown', 'lastChecked', 'lastSuccessfulCheck', 'lastChange', 'nextCheck'] as const) if (Number.isFinite(a[key])) restored[key] = a[key];
       this.activity.set(a.id, restored);
     }
@@ -124,7 +136,7 @@ export class Runtime {
     return true;
   }
   snapshot(): Snapshot {
-    return { version: 1, session: this.session, target: this.target,
+    return { version: 1, responseModel: this.responseModel, session: this.session, target: this.target,
       tasks: [...this.tasks.values()].filter(t => t.persist).map(t => ({ ...t })),
       jobs: [...this.jobs.values()].map(j => ({ ...j })), events: this.events.map(e => ({ ...e })), activity: [...this.activity.values()].map(a => ({ ...a })), history: this.history.map(e => ({ ...e })), historyTruncated: this.historyTruncated };
   }
@@ -185,6 +197,7 @@ export class Runtime {
   }
   private invalidate() {
     this.generation++;
+    this.flushing?.abort(); this.flushing = undefined;
     this.ticking = false;
     clearTimeout(this.timer);
     clearTimeout(this.batchTimer);
@@ -192,7 +205,7 @@ export class Runtime {
     for (const controller of this.active) controller.abort();
     this.active.clear();
   }
-  shutdown() { this.stopped = true; this.paused = true; this.invalidate(); }
+  shutdown() { this.lifetime.abort(); this.stopped = true; this.paused = true; this.invalidate(); }
   private async exec(script: string | Execution, signal?: AbortSignal) {
     if (this.stopped) throw new Error('Session closed');
     const generation = this.generation;
@@ -225,7 +238,7 @@ export class Runtime {
   }
   get state() {
     // Pause wins over pending; attention wins over ordinary queued updates.
-    if (this.capacityBlocked || [...this.tasks.values(), ...this.jobs.values()].some(r => r.deliveryError)) return 'Attention';
+    if (this.capacityBlocked || [...this.activity.values()].some(a => a.followUp === 'Submission failed') || [...this.tasks.values(), ...this.jobs.values()].some(r => r.deliveryError)) return 'Attention';
     if (this.paused) return 'Paused';
     if ([...this.tasks.values(), ...this.jobs.values()].some(r => r.deliveryError || (r.failures ?? 0) > 0)) return 'Attention';
     if (this.events.length) return 'Updates Pending';
@@ -237,7 +250,7 @@ export class Runtime {
     const source = 'kind' in record ? record.kind : 'job';
     const condition = record.pendingCondition ?? (record.pending.includes('condition UNKNOWN') || record.pending.includes('connection/pane UNKNOWN') ? 'attention' : 'observed');
     record.pendingAt ??= Date.now();
-    const existing = !this.flushing && condition === 'attention' ? this.events.find(e => e.id === record.id && e.source === source && e.condition === condition) : undefined;
+    const existing = condition === 'attention' ? this.events.find((e, i) => (!this.flushing || i >= this.inFlightCount) && e.id === record.id && e.source === source && e.condition === condition) : undefined;
     if (existing) {
       existing.count++; existing.last = record.pendingAt; existing.evidence = clean(record.pending, 1024);
     } else {
@@ -252,38 +265,49 @@ export class Runtime {
     this.armBatch();
   }
   private armBatch() {
-    if (this.stopped || this.paused || this.ticking || !this.events.length || this.batchTimer) return;
+    if (this.stopped || this.paused || this.ticking || this.flushing || !this.events.length || this.batchTimer) return;
     this.deadline ??= Date.now() + 3000;
     const generation = this.generation;
     this.batchTimer = setTimeout(() => {
       this.batchTimer = undefined;
-      if (generation === this.generation) this.flush();
+      if (generation === this.generation) void this.flush();
     }, Math.max(0, this.deadline - Date.now()));
   }
-  settled() { this.flush(); }
-  private flush() {
+  settled() { void this.flush(); }
+  private async flush() {
     if (this.stopped || this.paused || this.flushing || !this.events.length) return;
     if (Date.now() < (this.deadline ?? Infinity)) { this.armBatch(); return; }
     if (this.ticking || this.hooks.idle?.() === false) return;
-    this.flushing = true;
+    const controller = this.flushing = new AbortController();
+    const independent = Boolean(this.responseModel);
     const batch = this.events.slice(0, 20);
+    this.inFlightCount = batch.length;
     try {
-      this.hooks.notify(batch.map(e => ({ ...e })));
+      const pending = this.hooks.notify(batch.map(e => ({ ...e })), controller.signal);
+      if (pending) {
+        const record = await pending;
+        if (controller.signal.aborted) return;
+        record();
+      }
     } catch {
-      for (const e of batch) { const r = this.tasks.get(e.id) ?? this.jobs.get(e.id); if (r) r.deliveryError = true; }
+      if (controller.signal.aborted) return;
+      for (const e of batch) {
+        const a = this.activity.get(e.id); if (a) a.followUp = 'Submission failed';
+        const r = this.tasks.get(e.id) ?? this.jobs.get(e.id); if (r) r.deliveryError = true;
+      }
       this.paused = true; this.invalidate(); this.save();
-      this.flushing = false;
       return;
     }
     this.events.splice(0, batch.length);
     for (const e of batch) {
       const r = this.tasks.get(e.id) ?? this.jobs.get(e.id);
-      const a = this.activity.get(e.id); if (a) a.followUp = 'Follow-up requested';
+      const a = this.activity.get(e.id); if (a) a.followUp = independent ? 'Model responded' : 'Follow-up requested';
       if (r) { r.deliveryError = false; if (e.source === 'job' && ['succeeded', 'failed'].includes(e.condition)) (r as Job).reported = true; }
     }
     this.deadline = undefined;
-    this.flushing = false;
-    this.save(); // API submission, not model acknowledgement; persistence is not transactional.
+    this.flushing = undefined;
+    this.capacityBlocked = false;
+    this.save(); // Recording a response/submission and draining its facts are not transactional.
     this.armBatch(); this.arm();
   }
   async tick(now = Date.now()) {
@@ -386,7 +410,17 @@ export class Runtime {
       return { ...this.list(), note: 'Cleared current-session watches, schedules, job monitoring, unsubmitted events and Activity history; paused. Actual jobs, target files and conversation are unchanged. Notifications already submitted to Pi cannot be retracted.' };
     }
     else if (action === 'pause') { this.paused = true; this.invalidate(); this.hooks.changed?.(); }
-    else if (action === 'resume') { this.paused = false; if (this.capacityBlocked) { this.deadline = Date.now(); this.flush(); if (this.events.length >= 200) { this.paused = true; this.hooks.changed?.(); return this.list(); } this.capacityBlocked = false; } for (const j of this.jobs.values()) { j.monitoring = true; j.failures = 0; } this.arm(); this.armBatch(); this.hooks.changed?.(); }
+    else if (action === 'resume') {
+      this.paused = false;
+      for (const j of this.jobs.values()) { j.monitoring = true; j.failures = 0; }
+      if (this.capacityBlocked) {
+        this.deadline = Date.now(); void this.flush();
+        // Let the full queue drain one batch before restarting checks.
+        if (this.flushing) return this.list();
+        if (this.events.length >= 200) { this.paused = true; this.hooks.changed?.(); return this.list(); }
+      }
+      this.arm(); this.armBatch(); this.hooks.changed?.();
+    }
     else if (action === 'doctor') {
       return this.run.doctor ? this.run.doctor(signal ?? new AbortController().signal) : { note: 'Injected transport; capabilities unknown' };
     } else if (action === 'deploy-runner') {

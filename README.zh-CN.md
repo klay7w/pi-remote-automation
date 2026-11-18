@@ -22,7 +22,7 @@ pi install git:github.com/klay7w/pi-remote-automation
 
 重启 Pi，或在已有会话中运行 `/reload`。安装默认使用个人设置，添加 `-l` 可使用项目设置。Pi 仅在项目获得信任后加载项目包。运行 `pi list` 查看包，运行 `pi remove <source>` 移除包。
 
-<details>
+<details class="orca-details">
 <summary>从本地检出目录安装，用于源码开发</summary>
 
 克隆仓库后，使用检出目录的绝对路径运行 `pi install "/absolute/path/to/pi-remote-automation"`。Pi 直接从该目录加载包。
@@ -81,18 +81,30 @@ pi --automation-target ssh:lab --automation-cwd C:/work/project --automation-pla
 
 Activity 常驻栏最多显示三个活跃或未读的监视源，出错的监视源排在最前，其次是未读更新。打开 `/remote activity` 可查看完整列表、检查时间、观测结果和通知提交状态。
 
-| 命令 | 操作 |
-| --- | --- |
-| `/remote` 或 `/remote activity` | 打开 Activity，按 `r` 查看 Monitor 响应记录。 |
-| `/remote status` | 打开 Activity 概览。 |
-| `/remote jobs`、`/remote watches`、`/remote schedules` | 按监视源类型查看 Activity。 |
-| `/remote activity hide` 或 `/remote activity show` | 隐藏或显示常驻栏。 |
-| `/remote activity clear` | 将所有 Activity 更新标记为已查看，保留注册和历史。 |
-| `/remote doctor` | 检查目标能力。 |
-| `/remote pause` 或 `/remote resume` | 暂停或恢复检查与通知提交。 |
-| `/remote clear` | 移除监视注册并清空 Activity 历史。 |
+
+| 命令                                                   | 操作                                                  |
+| ---------------------------------------------------- | --------------------------------------------------- |
+| `/remote` 或 `/remote menu`                           | 打开 Remote 菜单。                                       |
+| `/remote activity`                                   | 打开 Activity，按 `r` 查看 Monitor 响应记录。                  |
+| `/remote model`                                      | 为当前会话选择事件响应模型，或恢复默认设置 **Follow main model**（跟随主模型）。 |
+| `/remote status`                                     | 打开 Activity 概览。                                     |
+| `/remote jobs`、`/remote watches`、`/remote schedules` | 按监视源类型查看 Activity。                                  |
+| `/remote activity hide` 或 `/remote activity show`    | 隐藏或显示常驻栏。                                           |
+| `/remote activity clear`                             | 将所有 Activity 更新标记为已查看，保留注册和历史。                      |
+| `/remote doctor`                                     | 检查目标能力。                                             |
+| `/remote pause` 或 `/remote resume`                   | 暂停或恢复检查与通知提交。                                       |
+| `/remote clear`                                      | 移除监视注册并清空 Activity 历史。                              |
+
 
 暂停监视期间，作业继续运行。连续三次探针出错后，监视会被禁用。重新创建该监视即可重试。
+
+### 选择事件响应模型
+
+默认情况下，监视通知会等到主助手空闲后再发给它。要让其他模型单独回复通知，打开 `/remote model`，选择一个 `provider/model` 条目。如果你在 Pi 中限定了模型范围，列表会先显示范围内的模型。选择 `Show all available models` 可查看全部可用模型。Pi 会为当前会话保存这项选择。要恢复默认设置，选择 `Follow main model`。
+
+所选模型只能看到事件详情，不能调用工具，也看不到聊天记录。即使主助手正忙，它也可以回复。你可以在对话和 Monitor 响应记录中看到回复及模型名称。主助手不会因此开始新一轮对话。只记入 Activity 的更新不会调用任何模型。
+
+如果所选模型未能回复，监视会暂停，待处理事件会保留。检查该模型是否可用、凭据是否有效，或改选其他模型，然后运行 `/remote resume` 重试。监视不会自动切换模型。
 
 ### Monitor 响应记录
 
@@ -102,14 +114,16 @@ Activity 常驻栏最多显示三个活跃或未读的监视源，出错的监�
 
 在 `/remote activity` 中按 `r`，可查看当前对话分支的响应记录，最新记录排在最前。用上下方向键选择记录，按 Enter 查看详情。按 Esc 依次返回记录列表、Activity 和对话。查看器显示打开 Activity 时的快照，需要重新打开才能查看新记录。
 
-每条记录包含通知、事件时间，以及通过明确消息 ID 关联的已保存助手文本。记录描述助手对通知的响应过程。作业状态可通过 `remote_job` 查看。
+在跟随主模型模式下，每条记录包含通知、事件时间，以及通过明确消息 ID 关联的已保存助手文本。记录描述助手对通知的响应过程。作业状态可通过 `remote_job` 查看。
 
-| 响应状态 | 含义 |
-| --- | --- |
-| `response ended` | 助手已完成对通知的处理。 |
-| `interrupted` | 处理提前中断。 |
+
+| 响应状态                               | 含义                   |
+| ---------------------------------- | -------------------- |
+| `response ended`                   | 助手已完成对通知的处理。         |
+| `interrupted`                      | 处理提前中断。              |
 | `user handover / source uncertain` | 用户输入或其他消息使响应来源变得不确定。 |
-| `incomplete / unknown` | 记录缺少结束标记。 |
+| `incomplete / unknown`             | 记录缺少结束标记。            |
+
 
 对话中会为关联响应显示 Monitor 处理标记。已保存且关联明确的助手消息在渲染时带有 `Monitor-triggered response` 标签。
 
@@ -123,18 +137,20 @@ Activity 常驻栏最多显示三个活跃或未读的监视源，出错的监�
 
 ## 工具
 
-| 工具 | 用途 |
-| --- | --- |
-| `remote_watch` | 运行 JSON 探针，监视匹配的状态。 |
-| `remote_schedule` | 一次或定期发送提醒、执行检查。 |
-| `remote_job` | 启动或附加作业，查看状态或输出，或取消有所有权的作业。 |
-| `remote_control` | 查看可用能力并控制监视。 |
+
+| 工具                | 用途                          |
+| ----------------- | --------------------------- |
+| `remote_watch`    | 运行 JSON 探针，监视匹配的状态。         |
+| `remote_schedule` | 一次或定期发送提醒、执行检查。             |
+| `remote_job`      | 启动或附加作业，查看状态或输出，或取消有所有权的作业。 |
+| `remote_control`  | 查看可用能力并控制监视。                |
+
 
 ## 会话和通知
 
 创建监视或定时任务时设置 `persist: true`，可以在同一会话和目标中恢复其配置。恢复后监视处于暂停状态，使用 `/remote resume` 从当前时间继续检查。托管作业在 Pi 退出后仍可继续运行，作业输出提供最近的有限末尾内容。
 
-`Follow-up requested` 记录向 Pi 提交通知的状态。打开 Monitor 响应记录可查看关联的助手回复。提交失败时，查看 `/remote activity` 并使用 `/remote resume` 重试。
+`Follow-up requested` 表示已向 Pi 提交请求，`Model responded` 表示所选的事件响应模型已回复。打开 Monitor 响应记录可查看关联的助手回复。提交失败时，查看 `/remote activity` 并使用 `/remote resume` 重试。
 
 会话保存 Activity 历史、待处理事件和工具参数。`persist` 控制监视和定时任务配置的保存。凭据使用目标上已有的配置，分享会话前请检查其内容。
 
@@ -162,7 +178,7 @@ SSH：
 
 </details>
 
-<details>
+<details class="orca-details">
 <summary>旧版 SSH 集成</summary>
 
 Pi 官方另有一个 SSH 示例扩展，也会重定向普通 Pi 工具，要求目标上有 `bash`。请将路径替换为 Pi 的 `examples/extensions/ssh.ts` 实际路径。在终端中运行：

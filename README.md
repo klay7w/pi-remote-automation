@@ -83,7 +83,9 @@ The Activity widget shows up to three active or unread sources. Sources with err
 
 | Command | Action |
 | --- | --- |
-| `/remote` or `/remote activity` | Open Activity. Press `r` for Monitor response records. |
+| `/remote` or `/remote menu` | Open the Remote menu. |
+| `/remote activity` | Open Activity. Press `r` for Monitor response records. |
+| `/remote model` | Select the event response model for this session or return to **Follow main model** (default). |
 | `/remote status` | Open the Activity overview. |
 | `/remote jobs`, `/remote watches`, `/remote schedules` | Show Activity for one source type. |
 | `/remote activity hide` or `/remote activity show` | Hide or show the widget. |
@@ -94,6 +96,14 @@ The Activity widget shows up to three active or unread sources. Sources with err
 
 Jobs continue running while monitoring is paused. Three consecutive probe errors disable a watch. Recreate that watch to retry.
 
+### Choose an event response model
+
+By default, monitoring waits until the main assistant is idle, then sends it a follow-up. To keep monitoring replies separate, open `/remote model` and choose a `provider/model` entry. If you configured a model scope in Pi, the picker shows those models first. Choose `Show all available models` to see the full list. Pi saves your choice for this session. Select `Follow main model` to restore the default.
+
+The selected model receives only the event details, without tools or chat history. It can reply while the main assistant is busy. Its reply appears under the model's name in chat and in Monitor response records. It does not start a main assistant turn. Activity-only updates do not call either model.
+
+If the selected model fails to respond, monitoring pauses and keeps the events for retry. Check the model and its credentials, or select another model. Run `/remote resume` to retry. Monitoring does not switch models on its own.
+
 ### Monitor response records
 
 Record details show the notification and its associated assistant text:
@@ -102,7 +112,7 @@ Record details show the notification and its associated assistant text:
 
 In `/remote activity`, press `r` to view records for the current conversation branch, newest first. Use the up and down arrows to select a record, then Enter to inspect it. Esc returns to the record list, then Activity, then chat. The inspector shows a snapshot taken when you open Activity. Reopen it to see newer records.
 
-Each record contains notifications, event times and stored assistant text linked by explicit message IDs. Records describe the assistant's response to a notification. Check job status through `remote_job`.
+In Follow main model mode, each record contains notifications, event times and stored assistant text linked by explicit message IDs. Records describe the assistant's response to a notification. Check job status through `remote_job`.
 
 | Response status | Meaning |
 | --- | --- |
@@ -134,7 +144,7 @@ Use `/remote activity clear` to mark updates as viewed while keeping registratio
 
 Set `persist: true` when creating a watch or schedule to restore its configuration in the same session and target. Restored monitoring starts paused. Use `/remote resume` to continue checks from the current time. Managed jobs can continue after Pi exits, and job output provides a bounded tail of recent output.
 
-`Follow-up requested` records notification submission to Pi. Open Monitor response records to inspect associated assistant replies. If submission fails, check `/remote activity` and use `/remote resume` to retry.
+`Follow-up requested` means a request was submitted to Pi; `Model responded` means the selected event response model replied. Open Monitor response records to inspect associated assistant replies. If submission fails, check `/remote activity` and use `/remote resume` to retry.
 
 The session stores Activity history, pending events and tool arguments. `persist` controls storage of watch and schedule configuration. Use credentials already configured on the target and review session content before sharing it.
 
